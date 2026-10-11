@@ -1,0 +1,10 @@
+av==18.1.0
+mss==10.2.0
+Pillow==12.1.0
+numpy==2.3.5
+lz4==4.4.5
+dxcam==0.3.0; sys_platform == 'win32'
+comtypes==1.4.17; sys_platform == 'win32'
+libusb1==3.4.0; sys_platform == 'linux'
+evdev==2.0.0; sys_platform == 'linux'
+dbus-next==0.2.3; sys_platform == 'linux'

@@ -1,0 +1,219 @@
+name: Build ND Screen Mirror
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag to build and publish assets for (optional)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  calculator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.ref }}
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install host and Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bison flex php-cli libboost-program-options-dev \
+            libgmp-dev libmpc-dev libmpfr-dev libtinfo-dev libexpat1-dev python3-dev texinfo xz-utils zlib1g-dev \
+            libusb-1.0-0 gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-pipewire dbus-x11 xvfb python3-tk
+          python -m pip install -r requirements-dev.txt
+
+      - name: Check source formatting and vendored inputs
+        run: make lint && python tools/ci_support.py verify
+
+      - name: Fetch pinned Ndless source
+        run: |
+          set -euo pipefail
+          sdk_ref="$(cat .github/ndless-revision)"
+          [[ "$sdk_ref" =~ ^[0-9a-f]{40}$ ]]
+          git init build/ndless
+          git -C build/ndless remote add origin https://github.com/ndless-nspire/Ndless.git
+          git -C build/ndless fetch --depth=1 origin "$sdk_ref"
+          git -C build/ndless checkout --detach FETCH_HEAD
+          git -C build/ndless submodule update --init --recursive --depth=1
+
+      - name: Cache Ndless toolchain
+        id: toolchain
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: build/ndless/ndless-sdk/toolchain/install
+          key: ${{ runner.os }}-ndmirror-toolchain-${{ hashFiles('.github/ndless-revision', 'build/ndless/ndless-sdk/toolchain/build_toolchain.sh') }}
+
+      - name: Build Ndless toolchain
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        working-directory: build/ndless/ndless-sdk/toolchain
+        run: PARALLEL="-j$(nproc)" PYTHON=/usr/bin/python3 ./build_toolchain.sh
+
+      - name: Configure build paths
+        run: |
+          echo "$GITHUB_WORKSPACE/build/ndless/ndless-sdk/toolchain/install/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/build/ndless/ndless-sdk/bin" >> "$GITHUB_PATH"
+          echo "NDLESS_SDK=$GITHUB_WORKSPACE/build/ndless/ndless-sdk" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+
+      - name: Build SDK libraries, startup objects and loader
+        run: |
+          make -C "$NDLESS_SDK" -j2 build-libndls build-system
+          make -C "$NDLESS_SDK/tools/zehn_loader" zehn_loader.tns
+
+      - name: Run Linux checks and build receiver
+        run: |
+          make check
+          make receiver
+          python tools/ci_support.py export-sdk --sdk "$NDLESS_SDK" --output build/ci-sdk.zip
+
+      - name: Upload calculator and check dependency
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: calculator-and-sdk
+          path: |
+            build/calculator/ndmirror.tns
+            build/calculator/ndmirror.elf
+            build/calculator/ndmirror.zehn
+            build/ci-sdk.zip
+          if-no-files-found: error
+
+      - name: Upload Linux check report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: linux-checks
+          path: build/checks/report.json
+
+  windows:
+    needs: calculator
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.ref }}
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        id: msys2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      - name: Add native Windows compiler
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: Join-Path $env:MSYS2_LOCATION 'ucrt64/bin' >> $env:GITHUB_PATH
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: calculator-and-sdk
+          path: build/imported
+
+      - name: Prepare inputs and dependencies
+        run: |
+          Expand-Archive -LiteralPath build/imported/ci-sdk.zip -DestinationPath build/ci-sdk
+          New-Item -ItemType Directory -Path build/calculator -Force | Out-Null
+          Copy-Item -LiteralPath build/imported/calculator/ndmirror.tns -Destination build/calculator
+          Copy-Item -LiteralPath build/imported/calculator/ndmirror.elf -Destination build/calculator
+          Copy-Item -LiteralPath build/imported/calculator/ndmirror.zehn -Destination build/calculator
+          "NDLESS_SDK=$env:GITHUB_WORKSPACE/build/ci-sdk" >> $env:GITHUB_ENV
+          python -m pip install -r requirements-dev.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+
+      - name: Check and build Windows sender
+        run: |
+          python tools/ci_support.py verify
+          if ($LASTEXITCODE -ne 0) { throw 'Vendor verification failed' }
+          python build_display_setup.py
+          if ($LASTEXITCODE -ne 0) { throw 'Display helper build failed' }
+          python tools/run_checks.py
+          if ($LASTEXITCODE -ne 0) { throw 'Checks failed' }
+          python tools/build_pc.py
+          if ($LASTEXITCODE -ne 0) { throw 'Sender build failed' }
+
+      - name: Assemble release package
+        run: |
+          $releaseVersion = python tools/ci_support.py version
+          if ($LASTEXITCODE -ne 0) { throw 'Invalid release version' }
+          $packageDirectory = "dist/ND-Screen-Mirror-$releaseVersion-windows"
+          python package.py $packageDirectory --calculator-build build/calculator --pc-build build/pc/ND-Screen-Mirror --check-report build/checks/report.json
+          if ($LASTEXITCODE -ne 0) { throw 'Packaging failed' }
+          python tools/ci_support.py release-assets --package $packageDirectory --output dist/release-assets
+          if ($LASTEXITCODE -ne 0) { throw 'Release asset preparation failed' }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-assets
+          path: dist/release-assets/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: windows-checks
+          path: build/checks/report.json
+
+  publish:
+    needs: [calculator, windows]
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: ndmirror-release-${{ github.event.release.tag_name || inputs.release_tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || 'latest' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.ref }}
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-assets
+          path: build/release-assets
+
+      - name: Publish rolling or versioned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          MANUAL_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="${EVENT_TAG:-${MANUAL_TAG:-}}"
+          if [[ -z "$tag" && "$GITHUB_REF" == refs/tags/* ]]; then tag="$GITHUB_REF_NAME"; fi
+          if [[ -z "$tag" || "$tag" == latest ]]; then
+            python tools/publish_release.py --tag latest --rolling --assets build/release-assets
+          else
+            python tools/publish_release.py --tag "$tag" --assets build/release-assets
+          fi

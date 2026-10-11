@@ -1,0 +1,27 @@
+{
+  "receiver_close_order_checked": true,
+  "native_service_stop_requires_idle_callback_and_enabled_interrupts": true,
+  "persistent_pause_checked": true,
+  "closing_reply_stops_pc_retries": true,
+  "pending_rpc_drained_before_pause": true,
+  "gui_desktop_retained_across_stop_start_checked": true,
+  "new_receiver_hardware_tested": true,
+  "receiver_sha256": "58c8d3f0877c0875bf06e2e90307e4f3fc9abec5d02697cd9b8abe4862dd9fdf",
+  "hardware_scope": "Windows and CX II; H264, 640x480 desktop, 320x240 receiver, 396 MHz",
+  "user_confirmed_stop_start_picture_returns": true,
+  "user_confirmed_ctrl_esc_returns_to_os": true,
+  "stream_sessions_seen": 2,
+  "new_receiver_492_mhz_exit_tested": false,
+  "session_summaries": [
+    {
+      "seconds": 50.920783100002154,
+      "displayed_frames": 1491,
+      "mean_displayed_fps": 29.28077514188773
+    },
+    {
+      "seconds": 6.110787999998138,
+      "displayed_frames": 183,
+      "mean_displayed_fps": 29.947037927032614
+    }
+  ]
+}

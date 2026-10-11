@@ -1,0 +1,33 @@
+{
+  "xvid": [
+    "src/codecs/xvid/xvid.c",
+    "src/codecs/xvid/decoder.c",
+    "src/codecs/xvid/bitstream/bitstream.c",
+    "src/codecs/xvid/bitstream/cbp.c",
+    "src/codecs/xvid/bitstream/mbcoding.c",
+    "src/codecs/xvid/dct/fdct.c",
+    "src/codecs/xvid/dct/idct.c",
+    "src/codecs/xvid/dct/simple_idct.c",
+    "src/codecs/xvid/image/arm/yv12_to_rgb565.c",
+    "src/codecs/xvid/image/colorspace.c",
+    "src/codecs/xvid/image/font.c",
+    "src/codecs/xvid/image/image.c",
+    "src/codecs/xvid/image/interpolate8x8.c",
+    "src/codecs/xvid/image/qpel.c",
+    "src/codecs/xvid/image/reduced.c",
+    "src/codecs/xvid/motion/estimation_common.c",
+    "src/codecs/xvid/motion/gmc.c",
+    "src/codecs/xvid/motion/motion_comp.c",
+    "src/codecs/xvid/motion/sad.c",
+    "src/codecs/xvid/prediction/mbprediction.c",
+    "src/codecs/xvid/quant/quant_h263.c",
+    "src/codecs/xvid/quant/quant_matrix.c",
+    "src/codecs/xvid/quant/quant_mpeg.c",
+    "src/codecs/xvid/utils/emms.c",
+    "src/codecs/xvid/utils/mbtransquant.c",
+    "src/codecs/xvid/utils/mem_align.c",
+    "src/codecs/xvid/utils/mem_transfer.c",
+    "src/codecs/xvid/utils/sram_tables.c",
+    "src/codecs/xvid/utils/timer.c"
+  ]
+}

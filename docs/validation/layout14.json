@@ -1,0 +1,7 @@
+{
+  "receiver_sha256": "58c8d3f0877c0875bf06e2e90307e4f3fc9abec5d02697cd9b8abe4862dd9fdf",
+  "pc_sha256": "836f4a7d6c6d5831fae115ecb0a3e448574281747aae855110000845dfdf02c5",
+  "user_confirmed_move_keeps_picture": true,
+  "user_confirmed_restart_keeps_placement": true,
+  "hardware_scope": "Windows and CX II, 396 MHz, 640x480 desktop"
+}

@@ -1,0 +1,13 @@
+{
+  "project": "VirtualDrivers/Virtual-Display-Driver",
+  "release": "25.7.23",
+  "source": "https://github.com/VirtualDrivers/Virtual-Display-Driver",
+  "driver_asset": "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/25.7.23/VirtualDisplayDriver-x86.Driver.Only.zip",
+  "license": "MIT",
+  "signature_verified": "SignPath Foundation; checked with Windows Authenticode and native WinVerifyTrust",
+  "hashes": {
+    "mttvdd.cat": "08a0093fc9b2e32b287a6f8a77ca4de0a31830d29fc33d2b13a918dc859468f6",
+    "MttVDD.dll": "c9ca837f57a98fbd43bc416a7f535a95843626e7759eaf85cf0cd7ce334dbb05",
+    "MttVDD.inf": "550d211fe481e74dfe3f9d724ed78be48b3a9113405965d683d9373e8d672f5d"
+  }
+}

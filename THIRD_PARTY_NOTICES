@@ -1,0 +1,33 @@
+ND SCREEN MIRROR — THIRD-PARTY NOTICES
+
+Project code uses GPL version 3; see LICENSE. Copyright and attribution notices in vendored files are retained.
+
+ND Video Player decoder/platform snapshot — vendor/ndvideo
+Selected sources from GigaZelensky/Nspire-VideoPlayer-Ndless, including local changes used for the tested mirror. The base commit and exact files are recorded in vendor/ndvideo/provenance.json. This is not a pristine upstream commit. Original detailed notices are in vendor/ndvideo/THIRD_PARTY_NOTICES; components not selected for this application remain listed there for historical provenance.
+
+H264BSD / ARM interpolation
+Android Open Source Project decoder code: Apache-2.0. Sam Leitch's standalone library/wrappers: MIT. KinomaJS interpolation: Apache-2.0, Marvell/Kinoma. Full notices: licenses/Apache-2.0.txt, licenses/h264bsd-MIT.txt and the vendored source headers.
+
+Xvid MPEG-4 decoder
+GPL-2.0-or-later; individual authors/notices remain in vendor/ndvideo/src/codecs/xvid. Decoder-only sources are selected by the build manifest.
+
+nSDL / SDL 1.2 — vendor/nsdl
+LGPL-2.1-or-later. Source, COPYING and CREDITS are included for rebuilding/relinking. A documented Ndless API compatibility change is recorded in its provenance file.
+
+VirtualDrivers / Virtual-Display-Driver 25.7.23
+MIT. Unmodified signed INF, DLL and catalog are bundled under drivers/virtual-display. See LICENSE-MTT.txt and provenance.json there. The ND display setup helper is project source, not part of the signed third-party driver.
+
+Python/runtime dependencies
+PyAV/FFmpeg, Pillow, MSS, NumPy, LZ4, DXcam, comtypes and PyInstaller retain their own licenses. Release packages copy license material from the installed pinned distributions and record their versions. FFmpeg contains separately licensed codec libraries; consult the included runtime notices and upstream sources. Build tooling is listed in requirements-dev.txt.
+
+Linux dependencies
+python-libusb1: LGPL-2.1-or-later (https://github.com/vpelletier/python-libusb1).
+python-evdev: BSD-3-Clause (https://github.com/gvalkov/python-evdev).
+python-dbus-next: MIT (https://github.com/altdesktop/python-dbus-next).
+These Python dependencies are installed by requirements.txt on Linux. PipeWire, GStreamer, libusb and xdg-desktop-portal are installed through the distribution package manager and retain their own licenses; no copies are bundled in the Windows runtime.
+
+Ndless SDK and GNU toolchain
+Built against the user's Ndless SDK and ARM GNU toolchain. SDK/standard support libraries and the Zehn loader retain their respective notices. Source: https://github.com/ndless-nspire/Ndless
+
+Nspire USB protocol reference
+pc/nspire_usb.py reimplements protocol formats and checksum algorithms described by Vogtinator/libnspire (Daniel Tang, Felix Böttcher), revision 7d7d962ca49ff9017f6f146336c51ef7f2edf4e0, GPL-3.0-or-later. See docs/usb-protocol.md and LICENSE. The default Windows transport uses Microsoft WinUSB supplied with Windows; no TI binary is bundled or required on CX II. The explicitly selected legacy NavNet comparison backend loads only a user's local TI installation.

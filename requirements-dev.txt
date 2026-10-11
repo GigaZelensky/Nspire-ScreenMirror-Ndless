@@ -1,0 +1,5 @@
+-r requirements.txt
+pyelftools==0.32
+pyinstaller==6.21.0
+ruff==0.17.0
+clang-format==23.1.3

@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-11",
+  "receiver_sha256": "58c8d3f0877c0875bf06e2e90307e4f3fc9abec5d02697cd9b8abe4862dd9fdf",
+  "clock_mhz_reported_by_receiver": 492,
+  "desktop_size": [640, 480],
+  "receiver_size": [320, 240],
+  "target_fps": 30,
+  "capture": "GDI",
+  "h264_preset": "ultrafast",
+  "adaptive_quality": true,
+  "static_desktop": {
+    "run_seconds": 35,
+    "five_second_keyframes": {
+      "mean_displayed_fps": 29.3644,
+      "ack_interval_p95_ms": 44.6767,
+      "ack_gaps_above_50ms": 37
+    },
+    "thirty_second_keyframes": {
+      "mean_displayed_fps": 29.9101,
+      "ack_interval_p95_ms": 37.0327,
+      "ack_gaps_above_50ms": 21
+    }
+  },
+  "latest_live_video": {
+    "seconds": 40.0332,
+    "mean_displayed_fps": 28.8011,
+    "capture_mean_ms": 5.2070,
+    "encode_mean_ms": 0.7837,
+    "rpc_transfer_mean_ms": 17.4023,
+    "capture_to_ack_p95_ms": 40.5453,
+    "user_confirmed_image_looks_good": true,
+    "same_scene_quality_comparison": false
+  },
+  "receiver_profile_bad_clock_samples": 173,
+  "receiver_profile_stage_costs_valid": false,
+  "black_offscreen_recording_excluded": true,
+  "panel_display_latency_measured": false
+}

@@ -1,0 +1,7 @@
+* text=auto eol=lf
+vendor/** -text -whitespace
+drivers/virtual-display/** -text -whitespace
+drivers/virtual-display/provenance.json text eol=lf whitespace
+*.dll binary
+*.cat binary
+*.png binary
