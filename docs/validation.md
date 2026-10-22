@@ -43,6 +43,54 @@ established.
 
 ## Open validation
 
+October 22 adaptation work remains a candidate. In one continuous low-motion
+desktop comparison, settled windows averaged 28.97 displayed FPS with the old
+controller and 29.92 with the candidate. Encoder targets ranged from
+519–1549 kbps and 852–947 kbps respectively. This comparison preceded the
+subsequent high-resolution clock fix and is not evidence for every source.
+
+A later three-minute 480 MHz live run completed 5,329 submitted frames without
+a logged USB failure and saved its final 829-frame GOP. FFmpeg and the production
+C receiver both decoded all 829 frames. Repeating those identical bytes four
+times per clock on the public receiver completed 3,316 frames at 396 MHz
+(141.63 seconds, 23.41 FPS) and 3,316 at 480 MHz (110.71 seconds, 29.95 FPS),
+with no reported replay failure. Internal receiver stage timings were excluded
+because their clock-sample checks failed.
+
+A separate 480 MHz live run froze after 2,492 acknowledged frames, about
+84 seconds. Its exact failing GOP was not captured. The successful replay
+above therefore does not reproduce or resolve that freeze. The buffered
+display/automatic-log probes were withdrawn after startup/shutdown hangs;
+their changes are not in the current candidate. The original public quiet
+receiver remains the hardware baseline.
+
+A further comparison re-encoded the same 829-frame RGB sequence using the
+original and candidate controllers, both at 480 MHz with the same precise
+pacer and two-minute duration. After a 15-second warmup, displayed FPS averaged
+29.25 versus 29.80; rolling samples below 29 FPS fell from 31/103 to 6/104.
+Payload averaged 771 versus 699 kbps. Comparing 808 matching source frames in
+their final GOPs gave RGB PSNR 46.06 versus 45.73 dB: a small objective fidelity
+tradeoff, not evidence of equal perceptual quality. This test excluded GDI
+capture work and remote input. A subsequent three-minute candidate pass with
+remote input enabled completed 5,351 frames without a streaming error,
+averaging 29.76 FPS after warmup. These checks did not reproduce the earlier
+live-desktop freeze.
+
+A later normal desktop run rebooted the calculator after about 17 minutes
+at 480 MHz. The last acknowledgement accepted frame 31,082 and displayed
+31,081 with no rejected frames or keyframe request. The host preserved the
+last 483 encoded frames, including the first unacknowledged frame, 31,083.
+FFmpeg and the production C decoder decoded all 483 frames on the host.
+Replaying those exact bytes twice per clock on the unchanged public receiver
+completed 966 frames at 396 MHz and another 966 at 480 MHz without a replay
+failure. No new calculator crash report survived the reboot. These results
+do not resolve a longer-session, ARM-specific, native USB or clock-related
+failure; the candidate is not yet established as reliable for long live runs.
+An isolated 396 MHz check then completed 66,000 ordinary status requests,
+crossing the host's natural 16-bit outer-packet counter wrap without an error.
+This exercised the basic rollover path without video decoding; it does not
+exclude a failure that requires concurrent decoding or overclocking.
+
 - Broader keyboard/layout/input combinations and different TI installations.
 - Broader clock/hardware combinations and physical USB error recovery. The measured 492 MHz failures above remain a limitation.
 - Original CX and Linux/Pi hardware.

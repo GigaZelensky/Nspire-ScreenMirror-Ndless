@@ -2,9 +2,17 @@ from pathlib import Path
 import threading
 import time
 import sys
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pc"))
 from latest_capture import LatestCapture
+import latest_capture
+
+# Different clock epochs expose accidental mixing of coarse Windows
+# monotonic timestamps with the sender's precise perf_counter timestamps.
+latest_capture.time = SimpleNamespace(
+    perf_counter=time.perf_counter, monotonic=lambda: time.perf_counter() - 1000000
+)
 
 
 class Camera:
@@ -43,7 +51,7 @@ try:
     time.sleep(0.08)
     latest = capture.grab()
     assert latest > first + 5
-    after = time.monotonic()
+    after = time.perf_counter()
     capture.grab(after=after)
     assert capture.last_sample[2] >= after
     assert len(capture.frame) == 3  # one frame, no unbounded queue

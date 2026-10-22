@@ -27,6 +27,7 @@ CHECKS = [
     "mpeg4_adaptive",
     "persistent",
     "adaptive",
+    "service_budget",
     "pacing",
     "long_gop",
     "display_rate",

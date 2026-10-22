@@ -48,7 +48,7 @@ from wire import CAP_PAUSE, ReceiverClosing
 from remote_input import RemoteInput
 from adaptive import AdaptiveQuality, AdaptiveMpeg4Quality
 from scheduling import SchedulingLease
-from pacing import next_deadline
+from pacing import next_deadline, wait_for_deadline
 from clock_options import CLOCKS, valid_clock
 
 
@@ -323,7 +323,10 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                 frame_times = deque(maxlen=512)
                 capture_age_seconds = 0.0
                 input_at = 0.0
-                started = time.monotonic()
+                # Use the same precise counter as pacing and LatestCapture.
+                # Python 3.12 Windows monotonic() advances in 15.6 ms steps.
+                started = time.perf_counter()
+                cpu_started = time.process_time()
                 sram_phase = 0
                 sram_at = started
                 if sram_interval:
@@ -365,7 +368,7 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                     credit_before = credit_seconds
                     # At most two encoded frames in flight; do not accumulate captured frames.
                     while not state["credit"] and not stop.is_set():
-                        waiting = time.monotonic()
+                        waiting = time.perf_counter()
                         if stop.wait(0.005):
                             break
                         state = channel_control(POLL)
@@ -373,8 +376,8 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                             before = remote.ack
                             remote.apply(state["events"])
                             if remote.ack > before:
-                                input_at = time.monotonic()
-                        credit_seconds += time.monotonic() - waiting
+                                input_at = time.perf_counter()
+                        credit_seconds += time.perf_counter() - waiting
                         app_bytes += 32 + state["reply_bytes"]
                         packet_count += 1
                         if state["status"] == RESYNC:
@@ -383,20 +386,14 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                             raise IOError("Calculator rejected stream poll")
                     if stop.is_set():
                         break
-                    pacing_started = time.monotonic()
+                    pacing_started = time.perf_counter()
                     capture_due = next_capture
-                    delay = next_capture - pacing_started
-                    while delay > 0 and not stop.is_set():
-                        if stop.wait(min(delay, 0.008) if remote else delay):
-                            break
-                        if remote:
-                            remote.tick()
-                        delay = next_capture - time.monotonic()
+                    wait_for_deadline(stop, next_capture, remote.tick if remote else None)
                     if stop.is_set():
                         break
                     if remote:
                         remote.tick()
-                    captured = time.monotonic()
+                    captured = time.perf_counter()
                     service_started = captured
                     pacing_wait = captured - pacing_started
                     pacing_seconds += pacing_wait
@@ -409,7 +406,16 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                             if getattr(args, "pipeline", False)
                             else capture.grab()
                         )
-                    captured_image = time.monotonic()
+                    captured_image = time.perf_counter()
+                    capture_luma = None
+                    if frame_timings:
+                        # Numeric-only source evidence distinguishes a black
+                        # capture from receiver/display recovery. Tiny C-side
+                        # downsampling keeps this opt-in instrumentation cheap.
+                        from PIL import ImageStat
+
+                        luma = image.resize((16, 12)).convert("L")
+                        capture_luma = (ImageStat.Stat(luma).mean[0], luma.getextrema()[1])
                     capture_seconds += captured_image - captured
                     if getattr(args, "pipeline", False) and not args.test_pattern:
                         capture_seconds -= captured_image - captured
@@ -417,13 +423,13 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                         capture_seconds += capture_finished - captured
                         capture_age_seconds += captured_image - capture_finished
                     if adaptive:
-                        predicted = adaptive.prepare(image, time.monotonic())
+                        predicted = adaptive.prepare(image, time.perf_counter())
                         if predicted is not None:
                             encoder.set_quality(predicted)
                     output = encoder.encode(image)
                     data, key = output[:2]
                     pixel_flags = output[2] if len(output) > 2 else 0
-                    encoded = time.monotonic()
+                    encoded = time.perf_counter()
                     encode_seconds += encoded - captured_image
                     if len(data) > (PIXEL_LIMIT if mode in ("lossless", "raw") else FRAME_LIMIT):
                         raise ValueError("Frame exceeds its receiver buffer limit")
@@ -433,7 +439,7 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                     diagnostic.encoded(sequence, key, data if mode == "h264" else None)
                     # The channel is retained for every fragment of this frame.
                     with contextlib.nullcontext(bridge) if persistent else bridge.connection():
-                        connected = time.monotonic()
+                        connected = time.perf_counter()
                         connect_seconds += connected - encoded
                         packets = list(
                             fragments(
@@ -455,7 +461,7 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                                 before = remote.ack
                                 remote.apply(state["events"])
                                 if remote.ack > before:
-                                    input_at = time.monotonic()
+                                    input_at = time.perf_counter()
                             if state["status"] == RESYNC:
                                 raise Resync("Calculator requested a fresh keyframe")
                             if state["status"] != OK:
@@ -469,18 +475,18 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                                     before = remote.ack
                                     remote.apply(state["events"])
                                     if remote.ack > before:
-                                        input_at = time.monotonic()
+                                        input_at = time.perf_counter()
                                 if state["status"] == RESYNC:
                                     raise Resync("Calculator requested a fresh keyframe")
                                 if state["status"] != OK:
                                     raise IOError(f"Frame rejected (status {state['status']})")
-                        acknowledged = time.monotonic()
+                        acknowledged = time.perf_counter()
                         wire_seconds += acknowledged - connected
                     if state["accepted"] != sequence:
                         raise IOError("Frame was not fully acknowledged")
                     sent += 1
                     byte_count += len(data)
-                    now = time.monotonic()
+                    now = time.perf_counter()
                     transfer_seconds += now - encoded
                     disconnect_seconds += now - acknowledged
                     frame_times.append((now - captured) * 1000)
@@ -514,6 +520,8 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                                 bitrate=adaptive.bitrate if adaptive and mode == "h264" else None,
                                 mpeg4_q=encoder.quantizer if mode == "mpeg4" else None,
                                 motion_score=adaptive.motion_score if adaptive else None,
+                                capture_luma_mean=capture_luma[0],
+                                capture_luma_max=capture_luma[1],
                             )
                         )
                     previous_capture, previous_ack = service_started, acknowledged
@@ -524,6 +532,9 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                             now - service_started + credit_seconds - credit_before,
                             captured_image - service_started,
                             len(data),
+                            encode_seconds=encoded - captured_image,
+                            queued=state["accepted"] - state["displayed"],
+                            keyframe=bool(key),
                         )
                         if changed is not None:
                             encoder.set_quality(changed)
@@ -541,20 +552,20 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                                 dict(
                                     kind="receiver_profile",
                                     session=session,
-                                    elapsed=time.monotonic() - started,
+                                    elapsed=time.perf_counter() - started,
                                     profile=profiled.get("profile"),
                                 )
                             )
                         profile_at = now
                     if sram_interval and now - sram_at >= sram_interval:
-                        deadline = time.monotonic() + 3
+                        deadline = time.perf_counter() + 3
                         while state["displayed"] < state["accepted"]:
                             state = channel_control(POLL)
                             if state["status"] != OK:
                                 raise Resync(
                                     "Receiver requested a reset at the table comparison boundary"
                                 )
-                            if time.monotonic() > deadline:
+                            if time.perf_counter() > deadline:
                                 raise IOError("Receiver did not finish the table comparison phase")
                             if stop.wait(0.001):
                                 raise InterruptedError("Stopped")
@@ -571,7 +582,7 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                                     dict(
                                         kind="receiver_profile",
                                         session=session,
-                                        elapsed=time.monotonic() - started,
+                                        elapsed=time.perf_counter() - started,
                                         profile=final_tables.get("profile"),
                                     )
                                 )
@@ -588,7 +599,7 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                             != enabled
                         ):
                             raise IOError("Receiver did not apply the requested SRAM table mode")
-                        sram_at = time.monotonic()
+                        sram_at = time.perf_counter()
                         diagnostic.record(
                             "sram_phase",
                             session=session,
@@ -631,7 +642,7 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                                 before = remote.ack
                                 remote.apply(state["events"])
                                 if remote.ack > before:
-                                    input_at = time.monotonic()
+                                    input_at = time.perf_counter()
                         quality_info = (
                             (
                                 f" / auto Q{adaptive.quantizer}"
@@ -683,6 +694,7 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                             stats_report(
                                 dict(
                                     elapsed=elapsed,
+                                    host_cpu_seconds=time.process_time() - cpu_started,
                                     frames=sent,
                                     displayed=state["displayed"],
                                     fps=sent / elapsed,
@@ -707,6 +719,12 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                                     if adaptive and mode == "h264"
                                     else None,
                                     adaptive_reason=adaptive.reason if adaptive else None,
+                                    capacity_bitrate=getattr(adaptive, "capacity_bitrate", None),
+                                    service_ms=getattr(adaptive, "service_ms", None),
+                                    controller_phase=getattr(adaptive, "phase", None),
+                                    capacity_confidence=getattr(
+                                        getattr(adaptive, "budget_model", None), "confidence", None
+                                    ),
                                     adaptive_changes=adaptive.changes if adaptive else 0,
                                     adaptive_predictions=adaptive.predictions if adaptive else 0,
                                     safe_motion_bitrate=adaptive.safe_motion_bitrate
@@ -740,7 +758,7 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                                 stats_report(
                                     dict(
                                         receiver_profile=measured["profile"],
-                                        host_elapsed=time.monotonic() - started,
+                                        host_elapsed=time.perf_counter() - started,
                                     )
                                 )
                         stop.set()
@@ -777,7 +795,14 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                             except Exception as e:
                                 report("USB stream cleanup: " + str(e))
                         if stream_channel:
-                            stream_channel.__exit__(None, None, None)
+                            try:
+                                stream_channel.__exit__(None, None, None)
+                            except Exception as e:
+                                # A failed native channel close invalidates this
+                                # bridge, but must not escape the session retry
+                                # loop and be mislabeled as a capture failure.
+                                diagnostic.failure(e, session, state)
+                                report("USB channel cleanup: " + str(e))
                     finally:
                         if bridge:
                             bridge.close()
@@ -800,7 +825,7 @@ def stream(args, stop, report=print, bridge_factory=Bridge, stats_report=None):
                 scheduling.close()
             if frame_timings:
                 frame_timings.close()
-        report(final_message or ("Capture could not start: " + fatal if fatal else "Stopped"))
+        report(final_message or ("Mirroring stopped: " + fatal if fatal else "Stopped"))
 
 
 def gui(defaults, remember=False, settings_path=None):

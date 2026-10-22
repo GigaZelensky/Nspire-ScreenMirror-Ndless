@@ -176,11 +176,11 @@ class WinUSB:
             raise
 
     @staticmethod
-    def check(result):
+    def check(result, operation="transfer"):
         if not result:
             error = c.get_last_error()
             if error == 121:
-                raise TimeoutError("Calculator USB transfer timed out")
+                raise TimeoutError(f"Calculator USB {operation} timed out")
             raise c.WinError(error)
 
     def set_timeout(self, endpoint, timeout):
@@ -190,14 +190,19 @@ class WinUSB:
     def read(self, maximum, timeout=1500):
         self.set_timeout(self.input, timeout)
         buffer, length = c.create_string_buffer(maximum), w.ULONG()
-        self.check(self.read_pipe(self.usb, self.input, buffer, maximum, c.byref(length), None))
+        self.check(
+            self.read_pipe(self.usb, self.input, buffer, maximum, c.byref(length), None), "read"
+        )
         if not length.value:
             raise IOError("Empty calculator USB transfer")
         return buffer.raw[: length.value]
 
     def write(self, data):
         buffer, length = c.create_string_buffer(data), w.ULONG()
-        self.check(self.write_pipe(self.usb, self.output, buffer, len(data), c.byref(length), None))
+        self.check(
+            self.write_pipe(self.usb, self.output, buffer, len(data), c.byref(length), None),
+            "write",
+        )
         if length.value != len(data):
             raise IOError("Incomplete calculator USB write")
 

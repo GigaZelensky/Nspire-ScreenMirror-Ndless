@@ -39,13 +39,13 @@ class LatestCapture:
                 os.environ.get("XDG_SESSION_TYPE") == "wayland" or os.environ.get("WAYLAND_DISPLAY")
             )
         )
-        deadline = time.monotonic() + (185 if portal else 8)
+        deadline = time.perf_counter() + (185 if portal else 8)
         while not self.ready.wait(0.05):
             cancelled = getattr(args, "stop_event", None)
             if cancelled is not None and cancelled.is_set():
                 self.close()
                 raise InterruptedError("Capture stopped")
-            if time.monotonic() >= deadline:
+            if time.perf_counter() >= deadline:
                 self.close()
                 raise TimeoutError("Capture initialization timed out")
         if self.error:
@@ -60,18 +60,18 @@ class LatestCapture:
             self.region = getattr(camera, "region", None)
             self.desktop_region = getattr(camera, "desktop_region", None)
             self.ready.set()
-            due = time.monotonic()
+            due = time.perf_counter()
             while not self.stop.is_set():
-                started = time.monotonic()
+                started = time.perf_counter()
                 image = camera.grab()
-                finished = time.monotonic()
+                finished = time.perf_counter()
                 with self.condition:
                     self.frame = (image, started, finished)
                     self.condition.notify_all()
                 due += 1 / rate
                 if due < finished:
                     due = finished
-                self.wake.wait(max(0, due - time.monotonic()))
+                self.wake.wait(max(0, due - time.perf_counter()))
                 self.wake.clear()
         except Exception as error:
             with self.condition:
@@ -89,7 +89,7 @@ class LatestCapture:
                 self.condition.notify_all()
 
     def grab(self, after=0):
-        deadline = time.monotonic() + 2
+        deadline = time.perf_counter() + 2
         with self.condition:
             if self.frame is None or self.frame[2] < after:
                 self.wake.set()
@@ -98,7 +98,7 @@ class LatestCapture:
                     raise self.error
                 if self.closed:
                     raise IOError("Capture stopped")
-                remaining = deadline - time.monotonic()
+                remaining = deadline - time.perf_counter()
                 if remaining <= 0:
                     raise TimeoutError("No fresh desktop capture")
                 self.condition.wait(min(0.05, remaining))

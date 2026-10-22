@@ -110,6 +110,38 @@ assert receivers[0].connections == 3
 assert not any("cleanup:" in message for message in messages), messages
 
 
+# Reproduce a frame timeout followed by a failing ECLOSE. Cleanup must not
+# terminate the outer retry loop or misreport a desktop-capture failure.
+class FailedChannelClose(Receiver):
+    @contextlib.contextmanager
+    def connection(self):
+        yield self
+        if self.accepted:
+            raise OSError("simulated native channel-close timeout")
+
+    def batch(self, packets):
+        for packet in packets:
+            self.exchange(packet)
+        raise OSError("simulated frame timeout")
+
+
+receivers, messages = [], []
+stop = threading.Event()
+
+
+def cleanup_failure_factory(*values):
+    receiver = (FailedChannelClose if not receivers else ClosingReceiver)(*values)
+    receivers.append(receiver)
+    return receiver
+
+
+mirror.stream(args, stop, messages.append, bridge_factory=cleanup_failure_factory)
+assert len(receivers) == 2 and all(receiver.closed for receiver in receivers)
+assert any("USB channel cleanup:" in message for message in messages), messages
+assert "receiver closed" in messages[-1]
+assert not any("Capture could not start" in message for message in messages), messages
+
+
 # A cancelled frame reply must be drained, not mistaken for the PAUSE reply.
 class Pipe:
     def __init__(self):

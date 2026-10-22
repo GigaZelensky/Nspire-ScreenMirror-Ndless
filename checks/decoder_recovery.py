@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix="mirror-recovery-") as temporary:
@@ -91,3 +92,35 @@ assert reset.index("mirror_decoder_free") < reset.index('write_log("h264_reset_d
 print(
     "PASS failed-frame quarantine, queued/partial discard, retained busy ownership and clean-keyframe reset"
 )
+
+helper = re.search(r"static void waiting_for_keyframe\([^)]*\) \{.*?\n\}", main, re.S).group(0)
+with tempfile.TemporaryDirectory(prefix="mirror-recovery-display-") as directory:
+    directory = Path(directory)
+    source = directory / "display.c"
+    source.write_text(
+        "#include <assert.h>\n#include <stdbool.h>\n"
+        "static bool have_picture;static unsigned clears;\n"
+        "static void waiting(const char *s){(void)s;++clears;}\n"
+        + helper
+        + '\nint main(void){waiting_for_keyframe("reset");assert(clears==1);'
+        'have_picture=true;for(unsigned i=0;i<100;++i)waiting_for_keyframe("reset");'
+        "assert(clears==1);return 0;}\n"
+    )
+    exe = directory / "display.exe"
+    subprocess.run(
+        [
+            shutil.which("gcc"),
+            "-std=c99",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source),
+            "-o",
+            str(exe),
+        ],
+        check=True,
+    )
+    subprocess.run([str(exe)], check=True)
+assert "have_picture = true;" in main
+assert 'waiting_for_keyframe("Stream reset needed. Reconnecting...");' in failure
+print("PASS recoverable reset retains a previously displayed picture instead of clearing the LCD")

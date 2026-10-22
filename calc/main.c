@@ -86,6 +86,7 @@ static uint32_t applied_pll, applied_emi74, applied_emi1c;
 static uint32_t timing_checked, timing_mismatched, timing_first_frame, timing_first_emi1c;
 #endif
 static uint32_t direct_presented, buffered_presented;
+static bool have_picture;
 #ifndef MIRROR_DIRECT_VRAM
 #define MIRROR_DIRECT_VRAM 0
 #endif
@@ -201,6 +202,12 @@ static void waiting(const char *status) {
     nSDL_DrawString(screen, font, 18, 182, "Scratchpad + swipe: scroll");
     nSDL_DrawString(screen, font, 18, 212, "Ctrl+Esc: exit  Flag: stats  Doc: Alt");
     present();
+}
+static void waiting_for_keyframe(const char *status) {
+    /* Avoid clearing the LCD during recovery after playback has started.
+     * Direct VRAM decoding may already have written part of the failed frame. */
+    if (!have_picture)
+        waiting(status);
 }
 #define CHANNEL_EXPORT(name, number)                                                               \
     static uint32_t export_##name(void) {                                                          \
@@ -899,6 +906,7 @@ int main(int argc, char **argv) {
             if (decoded) {
                 if (decoded > 0) {
                     queue.displayed = frame->id;
+                    have_picture = true;
                     ++frames;
                     if (stats) {
                         SDL_Rect box = {0, 0, 320, 14};
@@ -974,7 +982,7 @@ int main(int argc, char **argv) {
                     }
 #endif
                     write_log("decode_failure", result);
-                    waiting("Stream reset needed. Reconnecting...");
+                    waiting_for_keyframe("Stream reset needed. Reconnecting...");
                 }
                 frame->busy = false;
                 active = -1;

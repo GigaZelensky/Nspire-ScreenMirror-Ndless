@@ -3,6 +3,7 @@
 from collections import deque, Counter
 import math
 from PIL import Image, ImageChops, ImageStat
+from service_budget import ServiceBudget
 
 
 class AdaptiveQuality:
@@ -41,6 +42,13 @@ class AdaptiveQuality:
         self.reason = "warming up"
         self.changes = 0
         self.protect_idle = protect_idle
+        self.budget_model = ServiceBudget()
+        self.unsafe_rates = {}
+        self.unsafe_loads = {}
+        self.unsafe_costs = {}
+        self.easier_since = None
+        self.settle_until = 0.0
+        self.capacity_bitrate = None
 
     def prepare(self, image, now):
         small = image.resize((32, 24), Image.Resampling.BILINEAR).convert("L")
@@ -104,6 +112,8 @@ class AdaptiveQuality:
             self.bitrate = max(self.minimum, target // 1000 * 1000)
             self.last_change = now
             self.last_reduction = now
+            self.settle_until = now + 1.2
+            self.samples.clear()
             self.good_since = self.bad_since = None
             self.changes += 1
             self.predictions += 1
@@ -111,7 +121,28 @@ class AdaptiveQuality:
             return self.bitrate
         return None
 
-    def observe(self, now, displayed, service_seconds, capture_seconds, bytes_sent=0):
+    def observe(
+        self,
+        now,
+        displayed,
+        service_seconds,
+        capture_seconds,
+        bytes_sent=0,
+        *,
+        encode_seconds=0.0,
+        queued=0,
+        keyframe=False,
+    ):
+        self.budget_model.observe(
+            now,
+            bytes_sent,
+            service_seconds,
+            capture_seconds,
+            encode_seconds,
+            self.bitrate,
+            self.motion_band,
+            keyframe,
+        )
         self.bytes_sent += bytes_sent
         self.samples.append(
             (
@@ -125,7 +156,7 @@ class AdaptiveQuality:
                 bytes_sent,
             )
         )
-        while len(self.samples) > 2 and self.samples[1][0] < now - 1.2:
+        while len(self.samples) > 2 and self.samples[1][0] < now - 2.0:
             self.samples.popleft()
         first = self.samples[0]
         duration = now - first[0]
@@ -147,6 +178,7 @@ class AdaptiveQuality:
             return None
         self.last_check = now
         budget = 1 / self.fps
+        self.capacity_bitrate = self.budget_model.estimate(self.fps, self.motion_band)
         if mean_capture > budget and mean_service - mean_capture < budget * 0.65:
             self.good_since = self.bad_since = None
             self.reason = "desktop capture limited"
@@ -168,10 +200,18 @@ class AdaptiveQuality:
                 )
         # A slow USB reply can overlap useful decoder work. Do not lower quality
         # for that alone when recent displayed FPS is already on target.
-        urgent = self.short_fps < self.fps * 0.65 or (
-            self.motion_band > 0 and self.short_fps < self.fps * 0.78
+        # A delayed desktop/thread wake can reduce FPS while every frame is
+        # cheap. It cannot demonstrate receiver congestion. Require measured
+        # work or a full queue before an emergency quality reduction.
+        urgent = (mean_service > budget * 0.82 or queued >= 2) and (
+            self.short_fps < self.fps * 0.65
+            or (self.motion_band > 0 and self.short_fps < self.fps * 0.78)
         )
-        overloaded = urgent or (duration >= 0.7 and self.display_fps < self.fps * 0.94)
+        pressure = mean_service > budget * 0.97 or queued >= 2
+        # Missed Windows wakes / capture stalls cannot be fixed by repeatedly
+        # cutting image quality. A slow FPS reading needs corroborating work.
+        slow = duration >= 0.9 and self.display_fps < self.fps * 0.95
+        overloaded = urgent or pressure or (slow and mean_service > budget * 0.82)
         payloads = sorted(s[7] for s in self.samples)
         steady_light = (
             self.previous_image is not None
@@ -180,8 +220,8 @@ class AdaptiveQuality:
             and payloads[len(payloads) // 2] < 256
         )
         # Low-motion video can still be expensive. Brief headroom after a cut
-        # should not repeat the same bitrate overshoot; tiny static frames can
-        # recover quickly because their work is already cheap.
+        # should not repeat the same bitrate overshoot. Tiny static frames
+        # instead use the application-limited guard below.
         recovering = (
             not steady_light and self.last_reduction is not None and now - self.last_reduction < 10
         )
@@ -191,6 +231,33 @@ class AdaptiveQuality:
             self.good_since = self.bad_since = None
             self.reason = "frame timing limited"
             return None
+        if slow and not pressure and mean_service < budget * 0.7:
+            self.good_since = self.bad_since = None
+            self.reason = "frame timing limited"
+            return None
+        if now < self.settle_until and not urgent:
+            self.reason = "settling after quality change"
+            return None
+        # A genuinely easier scene may release an old ceiling. Normalize by
+        # the requested rate, so our own reduction cannot masquerade as a new
+        # lighter workload. Mere passage of time never forgets an overload.
+        failed_load = self.unsafe_loads.get(self.motion_band)
+        load = payload_rate / max(1, self.bitrate)
+        failed_cost = self.unsafe_costs.get(self.motion_band)
+        easier_cost = (
+            failed_cost
+            and mean_service * failed_cost[1] / max(1, self.bitrate) < failed_cost[0] * 0.6
+        )
+        easier_payload = failed_load and load < failed_load * 0.55
+        if (easier_payload or easier_cost) and mean_service < budget * 0.65:
+            if self.easier_since is None:
+                self.easier_since = now
+            if now - self.easier_since >= 3:
+                self.unsafe_rates.pop(self.motion_band, None)
+                self.unsafe_loads.pop(self.motion_band, None)
+                self.unsafe_costs.pop(self.motion_band, None)
+        else:
+            self.easier_since = None
         if overloaded:
             self.good_since = None
             if self.bad_since is None:
@@ -198,7 +265,7 @@ class AdaptiveQuality:
             # Brief 28-FPS dips and scene-transition spikes should not leave
             # the next easy scene unnecessarily blurry.
             emergency = urgent or self.display_fps < self.fps * 0.75
-            if not emergency and now - self.bad_since < 0.9:
+            if not emergency and now - self.bad_since < (1.0 if pressure else 0.9):
                 return None
             if self.last_change is not None and now - self.last_change < (
                 0.25 if emergency else 0.8
@@ -214,27 +281,43 @@ class AdaptiveQuality:
                 else 0.9
             )
             proposed = max(self.minimum, int(self.bitrate * ratio) // 1000 * 1000)
+            if self.capacity_bitrate is not None:
+                # The model can react before an FPS collapse. Bound one
+                # nonemergency step while its fresh response is measured.
+                proposed = max(
+                    self.minimum,
+                    int(min(proposed, max(self.bitrate * 0.7, self.capacity_bitrate)))
+                    // 1000
+                    * 1000,
+                )
             self.reason = "reducing traffic" if proposed < self.bitrate else "quality floor reached"
         elif (
             duration >= 0.7
-            and self.display_fps >= self.fps * 0.97
-            and mean_service < budget * (0.75 if self.motion_band >= 2 or recovering else 0.9)
+            and self.display_fps >= self.fps * 0.985
+            and self.service_ms / 1000 < budget * 0.82
         ):
             self.bad_since = None
             if self.good_since is None:
                 self.good_since = now
-            if now - self.good_since < (2.5 if self.motion_band >= 2 or recovering else 0.75):
+            if now - self.good_since < (3.0 if recovering else 2.0):
                 return None
-            factor = (
-                1.1
-                if self.motion_band >= 2 or recovering
-                else 2.0
-                if payload_rate < self.bitrate * 0.4 and mean_service < budget * 0.7
-                else 1.5
-                if mean_service < budget * 0.7
-                else 1.2
-            )
-            proposed = min(self.maximum, int(self.bitrate * factor) // 1000 * 1000)
+            # Quiet frames do not demonstrate spare transport capacity. Small
+            # additive probes replace the old 20-100% multiplicative jumps.
+            if bytes_sent and load < 0.45:
+                self.reason = "holding quality on an application-limited scene"
+                self.good_since = now
+                return None
+            step = min(64000, max(8000, self.bitrate * 0.05))
+            proposed = min(self.maximum, int((self.bitrate + step) / 1000) * 1000)
+            if self.capacity_bitrate is not None:
+                proposed = min(proposed, max(self.bitrate, self.capacity_bitrate // 1000 * 1000))
+            ceiling = self.unsafe_rates.get(self.motion_band)
+            if ceiling:
+                proposed = min(proposed, max(self.bitrate, int(ceiling * 0.95) // 1000 * 1000))
+            if proposed <= self.bitrate and self.bitrate < self.maximum:
+                self.reason = "holding tested capacity"
+                self.good_since = now
+                return None
             self.reason = (
                 "restoring detail" if proposed > self.bitrate else "quality ceiling reached"
             )
@@ -248,8 +331,14 @@ class AdaptiveQuality:
             return None
         if proposed < self.bitrate:
             self.last_reduction = now
+            band = self.motion_band
+            self.unsafe_rates[band] = min(self.unsafe_rates.get(band, self.bitrate), self.bitrate)
+            self.unsafe_loads[band] = load
+            self.unsafe_costs[band] = (mean_service, self.bitrate)
         self.bitrate = proposed
         self.last_change = now
+        self.settle_until = now + (0.5 if urgent else 1.2)
+        self.samples.clear()
         self.changes += 1
         return proposed
 
@@ -315,9 +404,9 @@ class AdaptiveMpeg4Quality:
     def prepare(self, image, now):
         return self._apply(self.feedback.prepare(image, now), now, prediction=True)
 
-    def observe(self, now, displayed, service_seconds, capture_seconds, bytes_sent=0):
+    def observe(self, now, displayed, service_seconds, capture_seconds, bytes_sent=0, **timing):
         proposed = self.feedback.observe(
-            now, displayed, service_seconds, capture_seconds, bytes_sent
+            now, displayed, service_seconds, capture_seconds, bytes_sent, **timing
         )
         if self.quantizer > 1 and self.feedback.reason == "frame timing limited":
             proposed = self.SCALE

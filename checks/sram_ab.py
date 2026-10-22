@@ -111,8 +111,8 @@ def monotonic():
     return now
 
 
-original_clock, original_apps = mirror.time.monotonic, mirror.linking_apps
-mirror.time.monotonic = monotonic
+original_clock, original_apps = mirror.time.perf_counter, mirror.linking_apps
+mirror.time.perf_counter = monotonic
 mirror.linking_apps = lambda: []
 try:
     with tempfile.TemporaryDirectory() as directory:
@@ -143,7 +143,7 @@ try:
         assert len([row for row in rows if row["kind"] == "sram_phase"]) == 4
         assert rows[-1]["kind"] == "receiver_profile"
 finally:
-    mirror.time.monotonic, mirror.linking_apps = original_clock, original_apps
+    mirror.time.perf_counter, mirror.linking_apps = original_clock, original_apps
 print(
     "PASS real sender RAM/SRAM phase ordering, frame-boundary drain, timing capture and finite completion"
 )

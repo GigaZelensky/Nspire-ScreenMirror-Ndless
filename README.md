@@ -107,7 +107,7 @@ Diagnostic files are off by default. Enable **Save diagnostic logs** in the PC a
 - **Empty separate display:** move a window onto it with Win+Shift+Arrow.
 - **Low FPS:** try the ultrafast preset with automatic quality enabled, or lower the frame rate.
 - **Pointer or scrolling too fast:** lower its sensitivity under Controls.
-- **An error or unexpected reconnect:** keep `%LOCALAPPDATA%/ND Screen Mirror/logs/connection.log` from the PC. Press Ctrl+D before exiting the receiver, then keep both `ndmirror.log.tns` and `ndmirror-event.log.tns`. The event file preserves the snapshot; the other file records exit progress. Both include timestamps and session IDs. Decoder failures also save an event snapshot automatically.
+- **An error or unexpected reconnect:** enable **Save diagnostic logs** in Advanced for a reproduction, then keep `%LOCALAPPDATA%/ND Screen Mirror/logs/connection.log` from the PC. Press Ctrl+D before exiting the receiver, then keep both `ndmirror.log.tns` and `ndmirror-event.log.tns`. The event file preserves the snapshot; the other file records exit progress. Both include timestamps and session IDs. Decoder failures also update the event snapshot while receiver logging is enabled.
 
 ## Running from source
 

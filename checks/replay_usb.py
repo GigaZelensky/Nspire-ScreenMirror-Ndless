@@ -82,6 +82,8 @@ result = replay(data, frames, 492, 60, threading.Event(), factory, repeats=2)
 assert not result["failure"] and result["completed"] == result["expected"] == 4
 assert instances[-1].frames == [data[:600], b"end"] * 2
 assert instances[-1].accepted == 904
+result = replay(data, frames, 480, 60, threading.Event(), factory)
+assert not result["failure"] and instances[-1].clock == 480 and instances[-1].paused
 
 
 def failing(stop):
@@ -103,7 +105,7 @@ def closing(stop):
 
 # An immediate simulated close may fit within one Windows clock tick. Check
 # that valid zero-duration case explicitly rather than depending on wall time.
-with patch("tools.benchmarks.replay_usb.time.monotonic", return_value=100.0):
+with patch("tools.benchmarks.replay_usb.time.perf_counter", return_value=100.0):
     result = replay(data, frames, 492, 60, threading.Event(), closing)
 assert result["closed_by_receiver"] and result["failure"] is None and result["duration"] == 0
 assert instances[-1].closed and not instances[-1].paused

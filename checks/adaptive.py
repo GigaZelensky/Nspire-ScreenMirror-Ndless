@@ -39,7 +39,7 @@ c = AdaptiveQuality(30)
 _, changes = simulate(c, 120, 0.031)
 assert not changes, "Near-capacity steady stream oscillated"
 c = AdaptiveQuality(30)
-_, changes = simulate(c, 1200, 0.006)
+_, changes = simulate(c, 3600, 0.006)
 assert c.bitrate == c.maximum and all(b <= c.maximum for _, b in changes)
 c = AdaptiveQuality(30)
 _, changes = simulate(c, 35, 1 / 28)
@@ -130,8 +130,11 @@ for n in range(100):
     displayed += 1
     c.prepare(black, now)
     c.observe(now, displayed, 0.008, 0.004, 16)
-assert c.bitrate >= before * 1.5, "Easy scene kept the overload quality restriction"
-print("PASS recent overload recovers gradually; tiny static frames restore detail quickly")
+assert c.bitrate >= before, "A tiny idle scene unnecessarily lost quality"
+assert c.bitrate <= before * 1.1, "Unused static-scene bandwidth caused another bitrate ramp"
+print(
+    "PASS recent overload recovers gradually; application-limited static scenes do not chase unused bandwidth"
+)
 
 out = ROOT / "build/checks/adaptive"
 out.mkdir(parents=True, exist_ok=True)

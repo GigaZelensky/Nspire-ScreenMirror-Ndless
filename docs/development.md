@@ -111,6 +111,23 @@ The receiver keeps the last 16 stage checkpoints and decoder-error details in bo
 
 MPEG-4 automatic quality uses the existing motion/timing feedback with an inverse-Q budget in the range Q1–Q8. Those internal budget units are not a bitrate setting. Live Q changes retain the encoder and reference chain, and the initial matrix tables include Q1 even when starting at another Q. PyAV's `global_quality` already converts Q to FFmpeg lambda units; the application does not multiply by 118 again. Fast enables rate-distortion block decisions; medium also enables trellis. These settings keep the existing chroma format, one reference and no B frames.
 
+H.264 adaptation combines displayed progress, queue occupancy and unpaced frame
+cost. A bounded byte/cost fit estimates a capacity only when sample variation and
+correlation support it; otherwise the controller uses measured headroom and small
+additive probes. Reductions retain an overload ceiling for the motion band,
+discard stale feedback and allow the new rate to settle. Application-limited
+scenes do not chase unused bitrate. Low FPS alone does not justify an emergency
+cut when frame work is cheap and the receiver queue has room. These follow
+[AIMD capacity/probing principles](https://webrtc.googlesource.com/src/+/main/modules/remote_bitrate_estimator/aimd_rate_control.cc),
+adapted to this receiver's CPU and USB constraints rather than a network-only model.
+
+Frame scheduling, cost measurements and latest-capture timestamps share
+`time.perf_counter()`. Python 3.12 on Windows uses a coarse `GetTickCount64`
+clock for `time.monotonic()`; mixing it with precise sleeps still creates
+frame-sized timing error. The pacing helper uses high-resolution Python sleeps
+in at most 8 ms slices for cancellation/input handling, without a busy loop.
+See the [CPython clock clarification](https://github.com/python/cpython/issues/126745).
+
 The receiver advertises display-rate synchronization and accepts a bounded tenths-of-FPS value once per second. Both displays then use the same displayed-frame IDs and PC monotonic time. Receiver OS ticks can undercount elapsed time while a long decode masks interrupts; they are no longer used for its FPS overlay. Legacy receivers can still stream, but the PC log records that their overlay needs an update.
 
 The opt-in developer flag `--capture-failure-stream` also retains the current H.264 GOP in PC RAM, bounded to 16 MiB/1800 frames. On a failure it saves the encoded screen content and frame metadata under the log directory's `failure-streams` folder, retaining three captures. It is disabled by default. Those captures allow replaying the exact data through FFmpeg and the production decoder; they are local diagnostic data, excluded from Git and packages. Normal Stop/receiver exit does not create a capture.

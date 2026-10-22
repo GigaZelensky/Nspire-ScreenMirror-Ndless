@@ -36,7 +36,7 @@ for fps in (30, 40, 50, 60):
 c = AdaptiveMpeg4Quality(50)
 now, count, changes = simulate(c, 120, 0.04, 0.04)
 assert changes and changes[0][0] < 1.2 and c.quantizer > 1
-now, count, recover = simulate(c, 700, 0.02, 0.008, start=now, count=count)
+now, count, recover = simulate(c, 1800, 0.02, 0.008, start=now, count=count)
 assert recover and c.quantizer == 1
 c = AdaptiveMpeg4Quality(50)
 _, _, changes = simulate(c, 1200, 0.05, 0.05, capture=0.04)

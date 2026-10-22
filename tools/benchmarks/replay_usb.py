@@ -29,6 +29,8 @@ from wire import (
     fragments,
 )
 from mirror import exchange_control
+from pacing import wait_for_deadline
+from clock_options import valid_clock
 
 
 def repeated_frames(frames, repeats):
@@ -76,7 +78,7 @@ def replay(data, frames, clock, fps, stop, bridge_factory=Bridge, repeats=1):
             if started["status"] != OK:
                 raise IOError("Receiver rejected persistent transfer")
             offset = 0
-            replay_started = due = time.monotonic()
+            replay_started = due = time.perf_counter()
             for frame in repeated_frames(frames, repeats):
                 while not state["credit"]:
                     if stop.wait(0.001):
@@ -84,7 +86,7 @@ def replay(data, frames, clock, fps, stop, bridge_factory=Bridge, repeats=1):
                     state = command(POLL)
                     if state["status"] != OK:
                         raise IOError(f"Receiver requested reset before frame {frame['frame']}")
-                if stop.wait(max(0, due - time.monotonic())):
+                if not wait_for_deadline(stop, due):
                     raise InterruptedError("Stopped")
                 if offset == len(data):
                     offset = 0
@@ -108,16 +110,16 @@ def replay(data, frames, clock, fps, stop, bridge_factory=Bridge, repeats=1):
                     raise IOError(f"Receiver reset at captured frame {frame['frame']}")
                 result["completed"] += 1
                 due += 1 / fps
-                if due < time.monotonic() - 1 / fps:
-                    due = time.monotonic()
-            deadline = time.monotonic() + 3
+                if due < time.perf_counter() - 1 / fps:
+                    due = time.perf_counter()
+            deadline = time.perf_counter() + 3
             while state["displayed"] < state["accepted"]:
                 state = command(POLL)
-                if state["status"] != OK or time.monotonic() > deadline:
+                if state["status"] != OK or time.perf_counter() > deadline:
                     raise IOError("Receiver did not display the final captured frame")
                 if stop.wait(0.001):
                     raise InterruptedError("Stopped")
-            result["duration"] = time.monotonic() - replay_started
+            result["duration"] = time.perf_counter() - replay_started
             result["profile"] = command(STATS, 2).get("profile")
             bridge.pause_session(session)
     except ReceiverClosing:
@@ -126,7 +128,7 @@ def replay(data, frames, clock, fps, stop, bridge_factory=Bridge, repeats=1):
         result["failure"] = str(error)
     finally:
         if replay_started is not None:
-            result["duration"] = time.monotonic() - replay_started
+            result["duration"] = time.perf_counter() - replay_started
         bridge.close()
     return result
 
@@ -169,7 +171,7 @@ def main():
         or not 1 <= args.fps <= 60
         or not 1 <= args.repeat <= 30
         or not args.clocks
-        or any(c not in (396, 492) for c in args.clocks)
+        or any(not valid_clock(c) for c in args.clocks)
     ):
         parser.error("Invalid capture size, rounds or frame rate")
     try:
